@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redirecting…</title>
+<!-- The QR code points HERE. Change TARGET below to send everyone somewhere else
+     later, without reprinting the QR code. A relative path or a full https:// URL both work. -->
+<script>
+  const TARGET = "index.html";
+  // keeps any ?query or #hash that was on the QR link
+  const dest = new URL(TARGET, location.href);
+  location.search && dest.search === "" && (dest.search = location.search);
+  location.replace(dest.href);
+</script>
+<noscript><meta http-equiv="refresh" content="0; url=index.html"></noscript>
+<style>body{font-family:system-ui,sans-serif;text-align:center;padding:60px 20px;color:#2a2118}</style>
+</head>
+<body>
+  <p>Taking you to the photo page…</p>
+  <p><a href="index.html">Tap here if nothing happens</a></p>
+</body>
+</html>

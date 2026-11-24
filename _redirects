@@ -1,0 +1,4 @@
+# Keep private/dev files off the live site (they still work locally).
+/admin.html   /404.html   404!
+/serve.py     /404.html   404!
+/README.md    /404.html   404!

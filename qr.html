@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Code Maker</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  :root { --ink:#2a2118; --muted:#7a6b5a; --accent:#c4561a; --line:#eadfce; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:#fbf7f1; color:var(--ink); }
+  .wrap { max-width:920px; margin:0 auto; padding:28px 16px 60px; display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+  @media (max-width:760px) { .wrap { grid-template-columns:1fr; } }
+  h1 { margin:0 0 4px; font-size:26px; grid-column:1/-1; } .sub { color:var(--muted); margin:0 0 6px; grid-column:1/-1; }
+  label { display:block; font-weight:600; font-size:14px; margin:14px 0 4px; }
+  input[type=text] { width:100%; padding:10px; border:1px solid #d9c8ae; border-radius:8px; font:inherit; }
+  button { font:inherit; padding:10px 16px; border-radius:10px; border:1px solid #d9c8ae; background:#fff; cursor:pointer; margin:12px 8px 0 0; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .warn { background:#fff3cd; border:1px solid #f0d78a; padding:10px 12px; border-radius:8px; font-size:14px; margin-top:12px; display:none; line-height:1.5; }
+  .hint { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5; }
+  .poster { background:#fff; border:1px solid var(--line); border-radius:16px; padding:28px 20px; text-align:center; }
+  .poster .plogo { width:150px; height:auto; display:block; margin:0 auto 10px; }
+  .poster h2 { margin:0 0 4px; font-size:26px; } .poster p { margin:0 0 14px; color:var(--muted); }
+  #qr { width:100%; max-width:340px; margin:0 auto; } #qr svg { width:100%; height:auto; display:block; }
+  .url { margin-top:12px; font-size:13px; color:var(--muted); word-break:break-all; }
+  @media print {
+    .poster .plogo { width:200px; }
+    body { background:#fff; } .wrap { display:block; padding:0; } .controls, h1, .sub { display:none; }
+    .poster { border:none; padding:40px 0; } .poster h2 { font-size:44px; } .poster p { font-size:22px; }
+    #qr { max-width:520px; } .url { font-size:16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>QR Code Maker</h1>
+  <p class="sub">Everyone who scans it lands on your photo page.</p>
+
+  <div class="controls">
+    <label for="url">Address the QR code opens</label>
+    <input type="text" id="url" spellcheck="false">
+    <div class="hint">Default is this site's <code>/go.html</code>, which redirects to the photo page. Edit <code>TARGET</code> inside <code>go.html</code> to change the destination later <b>without reprinting</b>.</div>
+    <div class="warn" id="warn"></div>
+
+    <label for="title">Heading on the poster</label>
+    <input type="text" id="title" value="Sneh Snamelan 2026">
+    <label for="caption">Line under the heading</label>
+    <input type="text" id="caption" value="Scan, upload a selfie, find &amp; download your photos">
+
+    <button class="primary" id="print">🖨 Print poster</button>
+    <button id="png">Download PNG</button>
+    <button id="svg">Download SVG</button>
+    <button id="copy">Copy link</button>
+  </div>
+
+  <div class="poster">
+    <img class="plogo" src="logo.webp" alt="">
+    <h2 id="pTitle"></h2><p id="pCap"></p>
+    <div id="qr"></div>
+    <div class="url" id="pUrl"></div>
+  </div>
+</div>
+
+<script src="qrcode.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+const base = location.href.replace(/[^/]*$/, "");          // folder this page lives in
+$("url").value = new URL("go.html", base).href;
+if (location.protocol === "file:") {
+  $("warn").style.display = "block";
+  $("warn").innerHTML = "⚠ You opened this as a file. Run <code>python3 serve.py</code> and open the address it prints, so the link in the QR code is reachable from a phone.";
+} else if (isLocal) {
+  $("warn").style.display = "block";
+  $("warn").innerHTML = "⚠ <b>localhost</b> only works on this computer. For your phone to open it, open this page using your computer's Wi-Fi address instead (<code>python3 serve.py</code> prints it, e.g. <code>http://192.168.1.23:8080/qr.html</code>), or paste that address above.";
+}
+
+let qr;
+function draw() {
+  const url = $("url").value.trim();
+  $("pTitle").textContent = $("title").value; $("pCap").textContent = $("caption").value; $("pUrl").textContent = url;
+  try { qr = QR.encode(url || " "); $("qr").innerHTML = QR.toSVG(qr); }
+  catch (e) { $("qr").textContent = e.message; qr = null; }
+}
+["url", "title", "caption"].forEach(id => $(id).addEventListener("input", draw));
+
+function save(href, name) { const a = document.createElement("a"); a.href = href; a.download = name; a.click(); }
+$("png").onclick = () => qr && save(QR.toCanvas(qr, 1200).toDataURL("image/png"), "photo-qr.png");
+$("svg").onclick = () => qr && save(URL.createObjectURL(new Blob([QR.toSVG(qr)], { type: "image/svg+xml" })), "photo-qr.svg");
+$("print").onclick = () => window.print();
+$("copy").onclick = async () => { try { await navigator.clipboard.writeText($("url").value); $("copy").textContent = "Copied ✓"; } catch { $("url").select(); } };
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Photo Indexer (admin)</title>
+<style>
+  body { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; max-width:760px; margin:30px auto; padding:0 16px; color:#2a2118; background:#fbf7f1; }
+  h1 { margin-bottom:4px; } p.sub { color:#7a6b5a; margin-top:0; }
+  label { display:block; margin:14px 0 4px; font-weight:600; font-size:14px; }
+  input[type=text], input[type=password], input[type=number] { width:100%; padding:10px; border:1px solid #d9c8ae; border-radius:8px; font:inherit; }
+  input[type=file] { font:inherit; }
+  button { font:inherit; padding:10px 16px; border-radius:10px; border:1px solid #d9c8ae; background:#fff; cursor:pointer; margin-right:8px; }
+  button.primary { background:#c4561a; border-color:#c4561a; color:#fff; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  progress { width:100%; height:18px; margin-top:16px; }
+  #log { background:#fff; border:1px solid #eadfce; border-radius:8px; padding:10px; height:220px; overflow:auto; font:12px/1.5 ui-monospace,Menlo,monospace; margin-top:12px; white-space:pre-wrap; }
+  .hint { font-size:13px; color:#7a6b5a; }
+  .row { display:flex; gap:12px; } .row > div { flex:1; }
+</style>
+</head>
+<body>
+<h1>Photo Indexer</h1>
+<p class="sub">Run this once (and again whenever you add photos). It reads your Drive folder, finds faces, and produces <code>index.json</code>.</p>
+
+<label for="folder">Google Drive folder link or ID</label>
+<input type="text" id="folder" placeholder="https://drive.google.com/drive/folders/XXXXXXXX">
+<label for="key">Google API key (Drive API enabled)</label>
+<input type="password" id="key" placeholder="AIza...">
+<p class="hint">The folder must be shared as “Anyone with the link – Viewer”. Subfolders are included.</p>
+
+<div class="row">
+  <div><label for="maxside">Analysis size (longest side, px)</label><input type="number" id="maxside" value="1600" min="800" max="3000" step="100"></div>
+  <div><label for="existing">Continue from an existing index.json (optional)</label><input type="file" id="existing" accept=".json"></div>
+</div>
+
+<p style="margin-top:20px">
+  <button class="primary" id="start">Start indexing</button>
+  <button id="stop" disabled>Stop</button>
+  <button id="save" disabled>Download index.json</button>
+</p>
+<progress id="prog" value="0" max="1"></progress>
+<div class="hint" id="stat"></div>
+<div id="log"></div>
+
+<script src="common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let photos = new Map();   // id -> {id, n, f:[[...]]}
+let stopFlag = false;
+const log = m => { const l = $("log"); l.textContent += m + "\n"; l.scrollTop = l.scrollHeight; };
+
+$("folder").value = localStorage.getItem("pf_folder") || "";
+$("key").value = localStorage.getItem("pf_key") || "";
+
+$("existing").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const j = JSON.parse(await f.text());
+  photos = new Map(j.photos.map(p => [p.id, p]));
+  log(`Loaded existing index with ${photos.size} photos – these will be skipped.`);
+  $("save").disabled = false;
+});
+
+async function listFolder(folderId, key, out = []) {
+  let pageToken = "";
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name,mimeType,thumbnailLink)` +
+      `&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&key=${key}` + (pageToken ? `&pageToken=${pageToken}` : "");
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Drive list failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+    const j = await r.json();
+    for (const f of j.files) {
+      if (f.mimeType === "application/vnd.google-apps.folder") await listFolder(f.id, key, out);
+      else if (/^image\/(jpeg|png|webp)$/.test(f.mimeType)) out.push(f);
+    }
+    pageToken = j.nextPageToken || "";
+    $("stat").textContent = `Listing folder… ${out.length} images found`;
+  } while (pageToken);
+  return out;
+}
+
+/* Getting pixels out of Drive from a browser: the full-file download (alt=media) is often blocked by
+   CORS on its redirect, so we try resized thumbnails first (smaller, faster, CORS-friendly) and fall
+   back to the other routes. The first route that works is remembered. */
+let methodOrder = ["thumb", "lh3", "media"], announced = false;
+async function tryMethod(m, f, key, maxSide) {
+  let url;
+  if (m === "thumb") {
+    if (!f.thumbnailLink) throw new Error("no thumbnailLink");
+    url = f.thumbnailLink.replace(/=s\d+.*$/, `=s${maxSide}`);
+  } else if (m === "lh3") url = `https://lh3.googleusercontent.com/d/${f.id}=s${maxSide}`;
+  else url = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media&supportsAllDrives=true&key=${key}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return blobToCanvas(await r.blob(), maxSide);
+}
+async function getCanvas(f, key, maxSide) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const errs = [];
+    for (const m of [...methodOrder]) {
+      try {
+        const c = await tryMethod(m, f, key, maxSide);
+        if (methodOrder[0] !== m) methodOrder = [m, ...methodOrder.filter(x => x !== m)];
+        if (!announced) { announced = true; log(`Download route that works: ${m}`); }
+        return c;
+      } catch (e) { errs.push(`${m}: ${e.message}`); }
+    }
+    if (attempt === 1) throw new Error(errs.join(" | "));
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
+
+function snapshot() {
+  return JSON.stringify({ version: 1, created: new Date().toISOString(), photos: [...photos.values()] });
+}
+
+$("save").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([snapshot()], { type: "application/json" }));
+  a.download = "index.json"; a.click();
+});
+$("stop").addEventListener("click", () => { stopFlag = true; });
+
+$("start").addEventListener("click", async () => {
+  const m = $("folder").value.match(/folders\/([\w-]+)/);
+  const folderId = m ? m[1] : $("folder").value.trim();
+  const key = $("key").value.trim();
+  if (!folderId || !key) { alert("Enter the folder link and API key."); return; }
+  localStorage.setItem("pf_folder", $("folder").value); localStorage.setItem("pf_key", key);
+  const maxSide = +$("maxside").value || 1600;
+  stopFlag = false; $("start").disabled = true; $("stop").disabled = false;
+
+  try {
+    log("Loading face models…");
+    await loadFaceModels();
+    log("Listing Drive folder…");
+    const files = await listFolder(folderId, key);
+    const todo = files.filter(f => !photos.has(f.id));
+    log(`${files.length} images in Drive, ${todo.length} new to process.`);
+    $("prog").max = Math.max(todo.length, 1); $("prog").value = 0;
+
+    let done = 0, facesTotal = 0, failed = 0;
+    const t0 = Date.now();
+    let next = todo.length ? getCanvas(todo[0], key, maxSide).catch(e => e) : null;   // prefetch pipeline
+    let streak = 0;
+    for (let i = 0; i < todo.length && !stopFlag; i++) {
+      const f = todo[i];
+      const canvasOrErr = await next;
+      next = i + 1 < todo.length ? getCanvas(todo[i + 1], key, maxSide).catch(e => e) : null;
+      try {
+        if (canvasOrErr instanceof Error) throw canvasOrErr;
+        const faces = await detectFaces(canvasOrErr, 0.5);
+        photos.set(f.id, { id: f.id, n: f.name, f: faces.map(x => Array.from(x.descriptor, v => +v.toFixed(3))) });
+        facesTotal += faces.length; streak = 0;
+      } catch (e) {
+        failed++; streak++; log(`✗ ${f.name}: ${e.message}`);
+        if (streak >= 8) {
+          log("Stopping: 8 photos in a row failed. Try Chrome in an Incognito window (browser extensions such as ad-blockers can block these requests), check the browser console (F12), and confirm the folder is shared as 'Anyone with the link'.");
+          stopFlag = true;
+        }
+      }
+      done++;
+      $("prog").value = done;
+      const per = (Date.now() - t0) / done, eta = Math.round(per * (todo.length - done) / 60000);
+      $("stat").textContent = `${done}/${todo.length} processed · ${facesTotal} faces · ${failed} failed · ~${eta} min left`;
+      if (done % 25 === 0) $("save").disabled = false;
+    }
+    log(stopFlag ? "Stopped. You can download the partial index and continue later." : "Finished.");
+    log(`Index has ${photos.size} photos. Click “Download index.json”.`);
+  } catch (e) { log("ERROR: " + e.message); console.error(e); }
+  $("start").disabled = false; $("stop").disabled = true; $("save").disabled = photos.size === 0;
+});
+</script>
+</body>
+</html>

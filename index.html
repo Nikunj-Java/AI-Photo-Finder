@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sneh Snamelan 2026</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<style>
+  :root { --bg:#fbf7f1; --ink:#2a2118; --muted:#7a6b5a; --accent:#c4561a; --accent-d:#9f4210; --card:#fff; --line:#eadfce; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { text-align:center; padding:28px 20px 16px; }
+  .logo { width:min(190px,48vw); height:auto; display:block; margin:0 auto 10px; filter:drop-shadow(0 6px 14px rgba(0,0,0,.12)); }
+  h1 { margin:0 0 8px; font-size:clamp(26px,5vw,38px); letter-spacing:-.01em; }
+  header p { margin:0; color:var(--muted); font-size:17px; }
+  main { max-width:1100px; margin:0 auto; padding:0 16px 80px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; margin:20px auto; max-width:560px; text-align:center; }
+  .drop { display:block; border:2px dashed #d9c8ae; border-radius:14px; padding:28px 16px; cursor:pointer; transition:.15s; }
+  .drop:hover, .drop.over { border-color:var(--accent); background:#fff6ee; }
+  .drop b { display:block; font-size:18px; margin-bottom:4px; }
+  .drop span { color:var(--muted); font-size:14px; }
+  .thumbs { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:14px; }
+  .thumbs img { width:84px; height:84px; object-fit:cover; border-radius:50%; border:3px solid #fff; box-shadow:0 0 0 1px var(--line); }
+  button { font:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:#fff; padding:10px 16px; color:var(--ink); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.primary:hover { background:var(--accent-d); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .status { margin-top:14px; font-size:15px; color:var(--muted); min-height:22px; }
+  .status.err { color:#b3261e; }
+  .note { font-size:13px; color:var(--muted); margin-top:14px; line-height:1.5; }
+  .bar { display:none; position:sticky; top:0; z-index:5; background:rgba(251,247,241,.95); backdrop-filter:blur(6px);
+         padding:12px 0; margin-bottom:8px; border-bottom:1px solid var(--line); gap:12px; align-items:center; flex-wrap:wrap; }
+  .bar.show { display:flex; }
+  .bar .grow { flex:1; min-width:160px; font-weight:600; }
+  .bar label { font-size:14px; color:var(--muted); display:flex; align-items:center; gap:8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px; }
+  .item { position:relative; background:#eee; border-radius:12px; overflow:hidden; aspect-ratio:1/1; border:2px solid transparent; }
+  .item.sel { border-color:var(--accent); }
+  .item img { width:100%; height:100%; object-fit:cover; display:block; cursor:zoom-in; }
+  .item input { position:absolute; top:10px; left:10px; width:22px; height:22px; accent-color:var(--accent); cursor:pointer; }
+  .item a.dl { position:absolute; right:8px; bottom:8px; background:rgba(0,0,0,.65); color:#fff; text-decoration:none;
+               padding:6px 10px; border-radius:8px; font-size:13px; }
+  .item a.dl:hover { background:var(--accent); }
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.88); display:none; align-items:center; justify-content:center; z-index:20; }
+  #lightbox.show { display:flex; }
+  #lightbox img { max-width:94vw; max-height:90vh; border-radius:8px; }
+  .empty { text-align:center; color:var(--muted); padding:30px 0; }
+  footer { text-align:center; color:var(--muted); font-size:13px; padding:10px 16px 36px; border-top:1px solid var(--line); max-width:1100px; margin:0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <img class="logo" src="logo.webp" alt="Soni community logo" width="190" height="183">
+  <h1 id="title">Sneh Snamelan 2026</h1>
+  <p id="subtitle"></p>
+</header>
+
+<main>
+  <section class="panel">
+    <label class="drop" id="drop">
+      <b>📷 Upload your selfie</b>
+      <span>Take one now or choose from your gallery. A clear, front-facing photo works best. Add up to 3 for better accuracy.</span>
+      <input id="file" type="file" accept="image/*" multiple hidden>
+    </label>
+    <div class="thumbs" id="thumbs"></div>
+    <div style="margin-top:16px">
+      <button class="primary" id="go" disabled>Find my photos</button>
+    </div>
+    <div class="status" id="status">Loading face recognition…</div>
+    <p class="note">🔒 Your selfie is processed inside your own browser and is never uploaded or stored.</p>
+  </section>
+
+  <div class="bar" id="bar">
+    <div class="grow" id="count"></div>
+    <label>Match
+      <select id="strict">
+        <option value="0.45">Strict</option>
+        <option value="0.5" selected>Balanced</option>
+        <option value="0.58">Loose</option>
+      </select>
+    </label>
+    <button id="selAll">Select all</button>
+    <button class="primary" id="dlSel">Download selected</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden></div>
+</main>
+
+<footer id="credit"></footer>
+
+<div id="lightbox"><img alt=""></div>
+
+<script src="common.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const S = { photos: null, selfies: [], results: [], selected: new Set(), ready: false };
+
+$("title").textContent = CONFIG.eventTitle;
+document.title = CONFIG.eventTitle;
+$("subtitle").textContent = CONFIG.eventSubtitle;
+$("credit").textContent = CONFIG.credit;
+$("strict").value = String(CONFIG.threshold);
+if (![...$("strict").options].some(o => o.value === $("strict").value)) $("strict").value = "0.5";
+
+function status(msg, err) { const s = $("status"); s.textContent = msg; s.className = "status" + (err ? " err" : ""); }
+
+async function init() {
+  try {
+    const [, idx] = await Promise.all([
+      loadFaceModels(),
+      fetch(CONFIG.indexUrl, { cache: "no-cache" }).then(r => {
+        if (!r.ok) throw new Error("index.json not found. Run admin.html first and upload the file next to this page.");
+        return r.json();
+      })
+    ]);
+    S.photos = idx.photos.map(p => ({ id: p.id, n: p.n, f: p.f.map(a => Float32Array.from(a)) }));
+    S.ready = true;
+    status(`Ready · ${S.photos.length} photos indexed`);
+    $("go").disabled = !(S.files && S.files.length);
+  } catch (e) { console.error(e); status(e.message, true); }
+}
+
+/* ---- selfie selection ---- */
+function setFiles(files) {
+  S.files = [...files].filter(f => f.type.startsWith("image/")).slice(0, 3);
+  $("thumbs").innerHTML = "";
+  S.files.forEach(f => { const i = new Image(); i.src = URL.createObjectURL(f); $("thumbs").appendChild(i); });
+  $("go").disabled = !S.ready || !S.files.length;
+}
+$("file").addEventListener("change", e => setFiles(e.target.files));
+const drop = $("drop");
+["dragover", "dragenter"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => setFiles(e.dataTransfer.files));
+
+/* ---- matching ---- */
+$("go").addEventListener("click", async () => {
+  $("go").disabled = true;
+  $("grid").innerHTML = ""; $("empty").hidden = true; $("bar").classList.remove("show");
+  try {
+    status("Reading your face…");
+    S.selfies = [];
+    for (const f of S.files) {
+      const canvas = await blobToCanvas(f, 1024);
+      const faces = await detectFaces(canvas, 0.6);
+      if (!faces.length) continue;
+      // use the largest face in the photo
+      faces.sort((a, b) => b.detection.box.area - a.detection.box.area);
+      S.selfies.push(faces[0].descriptor);
+    }
+    if (!S.selfies.length) { status("No face found. Try a clearer, well-lit, front-facing selfie.", true); return; }
+    status("Searching photos…");
+    await new Promise(r => setTimeout(r, 30));
+    render();
+    status("");
+  } catch (e) { console.error(e); status("Something went wrong: " + e.message, true); }
+  finally { $("go").disabled = false; }
+});
+
+$("strict").addEventListener("change", () => S.selfies.length && render());
+
+function render() {
+  const th = parseFloat($("strict").value);
+  S.results = matchPhotos(S.photos, S.selfies, th);
+  S.selected = new Set();
+  const grid = $("grid"); grid.innerHTML = "";
+  $("bar").classList.add("show");
+  $("count").textContent = S.results.length ? `${S.results.length} photo${S.results.length === 1 ? "" : "s"} found` : "No photos found";
+  $("empty").hidden = S.results.length > 0;
+  if (!S.results.length) $("empty").textContent = "No matches. Try the “Loose” setting or a different selfie.";
+  for (const r of S.results) {
+    const el = document.createElement("div"); el.className = "item";
+    const img = new Image(); img.loading = "lazy"; img.alt = r.n || "";
+    img.src = driveThumb(r.id, 480);
+    img.onerror = () => { img.onerror = null; img.src = driveThumbAlt(r.id, 480); };
+    img.onclick = () => openLightbox(r.id);
+    const cb = document.createElement("input"); cb.type = "checkbox";
+    cb.onchange = () => { cb.checked ? S.selected.add(r.id) : S.selected.delete(r.id); el.classList.toggle("sel", cb.checked); updateBtn(); };
+    const a = document.createElement("a"); a.className = "dl"; a.textContent = "⬇ Download";
+    a.href = driveDownload(r.id); a.target = "_blank"; a.rel = "noopener";
+    el.append(img, cb, a); grid.appendChild(el);
+  }
+  updateBtn();
+}
+
+function updateBtn() {
+  $("dlSel").textContent = S.selected.size ? `Download selected (${S.selected.size})` : "Download selected";
+  $("dlSel").disabled = !S.selected.size;
+  $("selAll").textContent = S.selected.size === S.results.length && S.results.length ? "Clear selection" : "Select all";
+}
+$("selAll").addEventListener("click", () => {
+  const all = S.selected.size !== S.results.length;
+  document.querySelectorAll(".item").forEach((el, i) => {
+    const cb = el.querySelector("input"); cb.checked = all; el.classList.toggle("sel", all);
+    all ? S.selected.add(S.results[i].id) : S.selected.delete(S.results[i].id);
+  });
+  updateBtn();
+});
+
+$("dlSel").addEventListener("click", async () => {
+  const ids = [...S.selected];
+  if (ids.length > 1 && !confirm(`Download ${ids.length} photos? Your browser may ask permission to download multiple files.`)) return;
+  $("dlSel").disabled = true;
+  for (let i = 0; i < ids.length; i++) {
+    $("dlSel").textContent = `Downloading ${i + 1}/${ids.length}…`;
+    const a = document.createElement("a"); a.href = driveDownload(ids[i]); a.style.display = "none";
+    document.body.appendChild(a); a.click(); a.remove();
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  updateBtn();
+});
+
+/* ---- lightbox ---- */
+const lb = $("lightbox");
+function openLightbox(id) {
+  const img = lb.querySelector("img");
+  img.onerror = () => { img.onerror = null; img.src = driveThumbAlt(id, 1600); };
+  img.src = driveThumb(id, 1600); lb.classList.add("show");
+}
+lb.addEventListener("click", () => lb.classList.remove("show"));
+document.addEventListener("keydown", e => e.key === "Escape" && lb.classList.remove("show"));
+
+init();
+</script>
+</body>
+</html>
